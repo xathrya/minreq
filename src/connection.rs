@@ -9,7 +9,7 @@ use crate::{Error, Method, ResponseLazy};
 use once_cell::sync::Lazy;
 #[cfg(feature = "rustls")]
 use rustls::{
-    self, ClientConfig, ClientConnection, OwnedTrustAnchor, RootCertStore, ServerName, StreamOwned,
+    self, ClientConfig, ClientConnection, RootCertStore, pki_types::{ ServerName, TrustAnchor }, StreamOwned,
 };
 #[cfg(feature = "rustls")]
 use std::convert::TryFrom;
@@ -32,17 +32,17 @@ static CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
         for root_cert in os_roots {
             // Ignore erroneous OS certificates, there's nothing
             // to do differently in that situation anyways.
-            let _ = root_certificates.add(&rustls::Certificate(root_cert.0));
+            let _ = root_certificates.add(&rustls::HandshakeType::Certificate(root_cert.0));
         }
     }
 
     #[allow(deprecated)] // Need to use add_server_trust_anchors to compile with rustls 0.21.1
     root_certificates.add_server_trust_anchors(TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
+        TrustAnchor {
+            subject:                 ta.subject,
+            subject_public_key_info: ta.spki,
+            name_constraints:        ta.name_constraints,
+        }
     }));
     let config = ClientConfig::builder()
         .with_safe_defaults()
