@@ -9,7 +9,7 @@ use crate::{Error, Method, ResponseLazy};
 use once_cell::sync::Lazy;
 #[cfg(feature = "rustls")]
 use rustls::{
-    self, ClientConfig, ClientConnection, RootCertStore, pki_types::{ ServerName, TrustAnchor }, StreamOwned,
+    self, ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName, StreamOwned,
 };
 #[cfg(feature = "rustls")]
 use std::convert::TryFrom;
@@ -30,22 +30,14 @@ static CONFIG: Lazy<Arc<ClientConfig>> = Lazy::new(|| {
     #[cfg(feature = "https-rustls-probe")]
     if let Ok(os_roots) = rustls_native_certs::load_native_certs() {
         for root_cert in os_roots {
-            // Ignore erroneous OS certificates, there's nothing
-            // to do differently in that situation anyways.
-            let _ = root_certificates.add(&rustls::HandshakeType::Certificate(root_cert.0));
+            // add certificate
+            let _ = root_certificates.add(root_cert);
         }
     }
-
-    #[allow(deprecated)] // Need to use add_server_trust_anchors to compile with rustls 0.21.1
-    root_certificates.add_server_trust_anchors(TLS_SERVER_ROOTS.iter().map(|ta| {
-        TrustAnchor {
-            subject:                 ta.subject,
-            subject_public_key_info: ta.spki,
-            name_constraints:        ta.name_constraints,
-        }
-    }));
+    
     let config = ClientConfig::builder()
-        .with_safe_defaults()
+//        .with_safe_defaults()
+//        .with_safe_default_protocol_versions()
         .with_root_certificates(root_certificates)
         .with_no_client_auth();
     Arc::new(config)
@@ -156,13 +148,14 @@ impl Connection {
     /// connection, and returns a [`Response`](struct.Response.html).
     #[cfg(feature = "rustls")]
     pub(crate) fn send_https(mut self) -> Result<ResponseLazy, Error> {
+        let host = ensure_ascii_host(self.request.url.host.clone())?;
         enforce_timeout(self.timeout_at, move || {
             self.request.url.host = ensure_ascii_host(self.request.url.host)?;
             let bytes = self.request.as_bytes();
 
             // Rustls setup
             log::trace!("Setting up TLS parameters for {}.", self.request.url.host);
-            let dns_name = match ServerName::try_from(&*self.request.url.host) {
+            let dns_name = match ServerName::try_from(host) {
                 Ok(result) => result,
                 Err(err) => return Err(Error::IoError(io::Error::new(io::ErrorKind::Other, err))),
             };
